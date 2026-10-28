@@ -41,6 +41,56 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(clips[0]['id'], 'hp3q_LmqOnc')
         fallback_mock.assert_called_once_with('@i11ush')
 
+    @patch('pipeline.load_channel_feed')
+    def test_three_sources_and_no_duplicate_ids(self, mock):
+        mock.side_effect = [
+            [{'id': 'AAAAAAAAAAA', 'title': 'A', 'published': '2026-10-28', 'shorts_url': 'https://youtube.com/shorts/AAAAAAAAAAA'}],
+            [{'id': 'BBBBBBBBBBB', 'title': 'B', 'published': '2026-10-28', 'shorts_url': 'https://youtube.com/shorts/BBBBBBBBBBB'}],
+            [{'id': 'AAAAAAAAAAA', 'title': 'dup', 'published': '2026-10-28', 'shorts_url': 'https://youtube.com/shorts/AAAAAAAAAAA'},
+             {'id': 'CCCCCCCCCCC', 'title': 'C', 'published': '2026-10-28', 'shorts_url': 'https://youtube.com/shorts/CCCCCCCCCCC'}],
+        ]
+        cfg = {'youtube_sources': [
+            {'handle': '@i11ush', 'channel_id': 'UC1'},
+            {'handle': '@keymood_yt'},
+            {'handle': '@world_edges'},
+        ]}
+        found = pipeline.collect_source_shorts(cfg, {'scheduled': {}})
+        self.assertEqual([v['source_handle'] for v in found], ['@i11ush', '@keymood_yt', '@world_edges'])
+        self.assertEqual(len(set(v['id'] for v in found)), 3)
+        self.assertEqual(mock.call_count, 3)
+        self.assertEqual(mock.call_args_list[1].args, (None, '@keymood_yt'))
+
+    @patch('pipeline.load_channel_feed')
+    def test_round_robin_after_previous_post(self, mock):
+        mock.side_effect = [
+            [{'id': 'AAAAAAAAAAA', 'title': 'A'}],
+            [{'id': 'BBBBBBBBBBB', 'title': 'B'}],
+            [{'id': 'CCCCCCCCCCC', 'title': 'C'}],
+        ]
+        cfg = {'youtube_sources': [
+            {'handle': '@i11ush'},
+            {'handle': '@keymood_yt'},
+            {'handle': '@world_edges'},
+        ]}
+        state = {'scheduled': {}, 'last_scheduled_source': '@i11ush'}
+        found = pipeline.collect_source_shorts(cfg, state)
+        self.assertEqual([v['source_handle'] for v in found], ['@keymood_yt', '@world_edges', '@i11ush'])
+
+    @patch('pipeline.load_channel_feed')
+    def test_failed_source_does_not_block_others(self, mock):
+        mock.side_effect = [
+            RuntimeError('unavailable'),
+            [{'id': 'BBBBBBBBBBB', 'title': 'B'}],
+            [{'id': 'CCCCCCCCCCC', 'title': 'C'}],
+        ]
+        cfg = {'youtube_sources': [
+            {'handle': '@i11ush'},
+            {'handle': '@keymood_yt'},
+            {'handle': '@world_edges'},
+        ]}
+        found = pipeline.collect_source_shorts(cfg, {'scheduled': {}})
+        self.assertEqual([v['source_handle'] for v in found], ['@keymood_yt', '@world_edges'])
+
     @patch('pipeline.gql')
     def test_find_buffer_tiktok(self, mock):
         mock.side_effect = [
