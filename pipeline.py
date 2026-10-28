@@ -206,8 +206,8 @@ def download_mirror(url, destination, mirror=True):
 def upload_cloudinary(file_path: Path, public_id: str):
     import cloudinary
     import cloudinary.uploader
-    if not os.environ.get('CLOUDINARY_URL'):
-        raise RuntimeError('GitHub Secret CLOUDINARY_URL is missing')
+    from verify_connections import normalize_cloudinary_url_env
+    normalize_cloudinary_url_env()
     cloudinary.config()
     args = {
         'resource_type': 'video',
