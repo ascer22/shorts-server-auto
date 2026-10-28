@@ -18,7 +18,7 @@ import time
 
 import requests
 
-from verify_connections import verify_buffer, normalize_cloudinary_url_env
+from verify_connections import verify_buffer
 
 BUFFER_ENDPOINT = "https://api.buffer.com"
 
@@ -41,32 +41,15 @@ def make_test_video(path: Path):
 
 
 def upload_video(path: Path):
-    # Set CLOUDINARY_URL before importing its SDK: it reads environment
-    # configuration during initialization.
-    normalize_cloudinary_url_env()
-    from cloudinary import config, uploader
+    from cloudinary_rest import upload_video_rest
 
-    cloud = config()
-    if not (cloud.cloud_name and cloud.api_key and cloud.api_secret):
-        raise RuntimeError("Cloudinary credentials are incomplete")
-    # Do not hard-code the cloud name based on screenshots: let the authenticated
-    # Upload API verify that all three credentials belong to the same account.
-    print("CLOUDINARY DIAGNOSTICS: complete connection URI parsed; checking Upload API.")
-    # Deliberately use the same Video Upload API as the actual pipeline.
+    print("CLOUDINARY: using authenticated REST Video Upload API.")
     run_id = os.getenv("GITHUB_RUN_ID") or "manual"
-    result = uploader.upload(
-        str(path),
-        resource_type="video",
-        folder="shorts-integration-tests",
-        public_id=f"original-smoke-{run_id}",
-        overwrite=False,
+    public_url = upload_video_rest(
+        path, public_id=f"original-smoke-{run_id}",
+        folder="shorts-integration-tests", overwrite=False,
     )
-    if result.get("resource_type") != "video":
-        raise RuntimeError("Cloudinary response did not confirm video upload")
-    public_url = result.get("secure_url")
-    if not isinstance(public_url, str) or not public_url.startswith("https://"):
-        raise RuntimeError("Cloudinary did not return a public HTTPS video URL")
-    print("CLOUDINARY: Upload API accepted the original synthetic MP4.")
+    print("CLOUDINARY: original synthetic MP4 uploaded over REST Basic Auth.")
     return public_url
 
 
