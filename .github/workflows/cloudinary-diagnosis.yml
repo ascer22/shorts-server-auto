@@ -1,10 +1,6 @@
 name: Cloudinary Authentication Diagnosis (No Upload)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/cloudinary-diagnosis.yml"
   workflow_dispatch:
 
 permissions:
