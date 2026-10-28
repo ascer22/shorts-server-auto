@@ -57,6 +57,23 @@ def normalize_cloudinary_url_env():
     API secret. Accept common dashboard copy/paste wrappers.
     """
     import re
+    # Prefer three independent GitHub Secrets so users need not construct
+    # a connection URI by hand. Never log their values.
+    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME", "").strip()
+    api_key = os.getenv("CLOUDINARY_API_KEY", "").strip()
+    api_secret = os.getenv("CLOUDINARY_API_SECRET", "").strip()
+    if all((cloud_name, api_key, api_secret)):
+        from urllib.parse import quote
+        if not cloud_name.replace("-", "").replace("_", "").isalnum():
+            raise RuntimeError("CLOUDINARY_CLOUD_NAME includes invalid characters")
+        url = f"cloudinary://{quote(api_key, safe='')}:{quote(api_secret, safe='')}@{cloud_name}"
+        os.environ["CLOUDINARY_URL"] = url
+        print("CLOUDINARY FORMAT: configured from three individual GitHub Secrets.")
+        return url
+    if any((cloud_name, api_key, api_secret)):
+        print("CLOUDINARY FORMAT: one or more of the three individual secrets is missing.")
+        raise RuntimeError("Please set all three Cloudinary GitHub Secrets")
+
     raw = os.getenv("CLOUDINARY_URL", "")
     value = raw.strip().strip("\x60")
     if not value:
