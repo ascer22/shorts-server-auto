@@ -16,14 +16,20 @@
 
 ## Настройка для публикаций (пока НЕ включена)
 1. Подключите TikTok к [Buffer](https://publish.buffer.com/) и получите ключ в [Buffer API Settings](https://publish.buffer.com/settings/api).
-2. Зарегистрируйте бесплатный [Cloudinary](https://cloudinary.com/users/register/free), получите `CLOUDINARY_URL`.
+2. Зарегистрируйте бесплатный [Cloudinary](https://cloudinary.com/users/register/free). Проще использовать **три отдельных секрета** вместо сборки строки CLOUDINARY_URL: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`. Приоритет у этой тройки.
 3. В GitHub откройте **Settings → Secrets and variables → Actions**:
-   - **Secrets**: `BUFFER_API_KEY`, `CLOUDINARY_URL`
+   - **Secrets**: `BUFFER_API_KEY`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` (либо один корректно сформированный `CLOUDINARY_URL`)
    - **Variables**: `TARGET_TIKTOK_HANDLE=kaspy_58`, при необходимости `BUFFER_CHANNEL_ID`
 4. Только после теста и подтверждения прав на публикацию установите переменную `ENABLE_AUTOMATION=true`.
 5. Проверить вручную: **Actions → Run workflow → publish**.
 
 Без `ENABLE_AUTOMATION=true` даже ручной запрос `publish` остаётся проверкой ссылок.
+
+### Проверка хранения, не публикующая ролики
+
+Откройте [Actions](https://github.com/ascer22/shorts-server-auto/actions) → **Smoke test Cloudinary to Buffer draft** → **Run workflow**. Она генерирует короткое оригинальное тестовое видео, загружает его в Cloudinary и создаёт **только черновик** в Buffer. Никаких постов в TikTok эта проверка не публикует.
+
+Не отправляйте секреты в чат или в содержимое репозитория: только в **Settings → Secrets and variables → Actions → Repository secrets**. Старую некорректную запись `CLOUDINARY_URL` можно не трогать, когда все три отдельных секрета заполнены.
 
 ## Расписание
 Проверка в **08:17 UTC (11:17 МСК)**. В режиме публикаций скрипт планирует ролик на **18:00 МСК** текущего дня или следующего, если времени до 18:00 осталось менее 30 минут. GitHub может задерживать scheduled runs.
