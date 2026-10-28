@@ -7,18 +7,20 @@ on:
       - "config.json"
       - "pipeline.py"
       - "tests/test_pipeline.py"
+      - "verify_connections.py"
       - ".github/workflows/daily-shorts.yml"
   schedule:
     - cron: '17 8 * * *'  # 11:17 Moscow
   workflow_dispatch:
     inputs:
       mode:
-        description: 'check = URLs only; publish = prepare and queue one video (requires ENABLE_AUTOMATION)'
+        description: 'check=URLs, connections=verify keys (no posts), publish=opt-in scheduling'
         required: true
         default: 'check'
         type: choice
         options:
           - check
+          - connections
           - publish
 
 permissions:
@@ -70,6 +72,18 @@ jobs:
           fi
           echo "Mode: $MODE (ENABLE_AUTOMATION=$ENABLE_AUTOMATION)"
           python pipeline.py --mode "$MODE"
+
+      - name: Verify connected accounts (read-only)
+        if: github.event_name == 'push' || inputs.mode == 'connections'
+        env:
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
+          TARGET_TIKTOK_HANDLE: ${{ vars.TARGET_TIKTOK_HANDLE }}
+        run: |
+          if [ -z "$TARGET_TIKTOK_HANDLE" ]; then
+            export TARGET_TIKTOK_HANDLE=kaspy_58
+          fi
+          python verify_connections.py
 
       - name: Save scheduled publication history
         run: |
