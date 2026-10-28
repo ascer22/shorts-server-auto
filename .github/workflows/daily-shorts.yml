@@ -1,0 +1,78 @@
+name: YouTube Shorts to TikTok (daily)
+
+on:
+  schedule:
+    - cron: '17 8 * * *'  # 11:17 Moscow
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'check = URLs only; publish = prepare and queue one video (requires ENABLE_AUTOMATION)'
+        required: true
+        default: 'check'
+        type: choice
+        options:
+          - check
+          - publish
+
+permissions:
+  contents: write
+
+concurrency:
+  group: shorts-scheduler
+  cancel-in-progress: false
+
+jobs:
+  automation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Run automated tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Check source / optional publishing
+        env:
+          ENABLE_AUTOMATION: ${{ vars.ENABLE_AUTOMATION }}
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
+          TARGET_TIKTOK_HANDLE: ${{ vars.TARGET_TIKTOK_HANDLE }}
+          BUFFER_CHANNEL_ID: ${{ vars.BUFFER_CHANNEL_ID }}
+          USER_MODE: ${{ inputs.mode }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          MODE=check
+          if [ "$ENABLE_AUTOMATION" = "true" ]; then
+            if [ "$EVENT_NAME" = "schedule" ] || [ "$USER_MODE" = "publish" ]; then
+              MODE=publish
+            fi
+          fi
+          echo "Mode: $MODE (ENABLE_AUTOMATION=$ENABLE_AUTOMATION)"
+          python pipeline.py --mode "$MODE"
+
+      - name: Save scheduled publication history
+        run: |
+          if [ -n "$(git status --porcelain -- data/state.json)" ]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add data/state.json
+            git commit -m 'Record scheduled Short'
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+          else
+            echo 'No publication history changes.'
+          fi
