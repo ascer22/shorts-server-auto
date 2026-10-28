@@ -57,14 +57,15 @@ def verify_cloudinary():
     if not value.startswith("cloudinary://"):
         raise RuntimeError("CLOUDINARY_URL must start with cloudinary:// (without CLOUDINARY_URL= prefix)")
     import cloudinary
-    import cloudinary.api
     conf = cloudinary.config()
     if not all((conf.cloud_name, conf.api_key, conf.api_secret)):
         raise RuntimeError("Cloudinary connection string is incomplete")
-    result = cloudinary.api.ping()
-    if result.get("status") != "ok":
-        raise RuntimeError("Cloudinary ping returned an unexpected status")
-    print("CLOUDINARY: authenticated API ping OK. No media was uploaded.")
+    # Admin API ping() requires broader permissions than the Upload API.
+    # A restricted Media Library User API key can therefore fail ping() even
+    # when its credentials have been entered correctly. Do not request
+    # elevated permissions solely for this read-only configuration check.
+    print("CLOUDINARY: secret is present and SDK credentials are parsed.")
+    print("CLOUDINARY: upload permissions NOT yet tested; Admin API ping skipped.")
 
 
 def main():
@@ -81,7 +82,7 @@ def main():
     if failed:
         print("CHECK FAILED. Publishing remains disabled.")
         return 1
-    print("CHECK COMPLETE: both services connected. Nothing published.")
+    print("CHECK COMPLETE: Buffer authenticated; Cloudinary config parsed only. Nothing uploaded or published.")
     return 0
 
 
