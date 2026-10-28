@@ -66,10 +66,58 @@ def parse_rss(xml_bytes):
     return sorted(result, key=lambda v: v['published'], reverse=True)
 
 
-def load_channel_feed(channel_id):
+def parse_channel_playlist(payload):
+    """Normalize yt-dlp --flat-playlist output into the feed item schema."""
+    items = []
+    for entry in payload.get('entries') or []:
+        if not isinstance(entry, dict):
+            continue
+        identifier = entry.get('id') or entry.get('url')
+        if not identifier or len(identifier) != 11 or not all(c.isalnum() or c in '-_' for c in identifier):
+            continue
+        upload_date = entry.get('upload_date') or ''
+        published = (f'{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}'
+                     if len(upload_date) == 8 and upload_date.isdigit() else '')
+        items.append({
+            'id': identifier,
+            'title': entry.get('title') or 'Short',
+            'published': published,
+            'youtube_url': f'https://www.youtube.com/watch?v={identifier}',
+            'shorts_url': f'https://www.youtube.com/shorts/{identifier}',
+        })
+    return items
+
+
+def load_channel_via_ytdlp(channel_handle, limit=20):
+    """Public channel listing fallback; doesn't download video files."""
+    handle = '@' + channel_handle.lstrip('@')
+    cmd = ['yt-dlp', '--flat-playlist', '--playlist-end', str(limit),
+           '--dump-single-json', '--skip-download',
+           f'https://www.youtube.com/{handle}/shorts']
+    process = subprocess.run(cmd, text=True, capture_output=True, check=True, timeout=120)
+    items = parse_channel_playlist(json.loads(process.stdout))
+    if not items:
+        raise RuntimeError('YouTube channel Shorts listing is empty or inaccessible')
+    return items
+
+
+def load_channel_feed(channel_id, channel_handle=None):
+    """Use the public YouTube RSS feed, falling back if YouTube returns 404.
+
+    Some otherwise public channels do not provide a working RSS endpoint.
+    """
     url = f'https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}'
-    with urlopen(Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=30) as response:
-        return parse_rss(response.read())
+    try:
+        with urlopen(Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=30) as response:
+            items = parse_rss(response.read())
+        if items:
+            return items
+        LOG.warning('YouTube RSS feed returned no videos, trying channel Shorts listing.')
+    except Exception as exc:
+        LOG.warning('YouTube RSS failed (%s). Trying channel Shorts listing.', exc)
+    if not channel_handle:
+        raise RuntimeError('YouTube RSS unavailable and no channel handle configured')
+    return load_channel_via_ytdlp(channel_handle)
 
 
 def video_info(url):
@@ -215,7 +263,7 @@ def create_buffer_post(api_key, channel_id, title, video_url, due_at, suffix):
 def run(mode):
     cfg = get_config()
     state = read_state()
-    recent = load_channel_feed(cfg['youtube_channel_id'])
+    recent = load_channel_feed(cfg['youtube_channel_id'], cfg.get('youtube_handle'))
     new_videos = [v for v in recent if v['id'] not in state['scheduled']]
     LOG.info('YouTube %s: %d recent, %d unscheduled', cfg['youtube_handle'], len(recent), len(new_videos))
     if mode == 'check':
