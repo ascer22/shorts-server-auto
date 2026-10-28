@@ -77,7 +77,7 @@ jobs:
           python pipeline.py --mode "$MODE"
 
       - name: Verify connected accounts (read-only)
-        if: github.event_name == 'push' || inputs.mode == 'connections'
+        if: inputs.mode == 'connections'
         env:
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
