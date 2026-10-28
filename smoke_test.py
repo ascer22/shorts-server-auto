@@ -47,21 +47,9 @@ def upload_video(path: Path):
     cloud = config()
     if not (cloud.cloud_name and cloud.api_key and cloud.api_secret):
         raise RuntimeError("Cloudinary credentials are incomplete")
-    # Public logs include no credential values. These checks catch the
-    # placeholder template copied from the Cloudinary API Keys page.
-    expected_cloud = "ipywikrb"
-    print("CLOUDINARY DIAGNOSTICS: cloud name matches dashboard:",
-          str(cloud.cloud_name).strip() == expected_cloud)
-    key_ok = str(cloud.api_key).isdigit() and 10 <= len(str(cloud.api_key)) <= 30
-    secret_text = str(cloud.api_secret)
-    secret_ok = (len(secret_text) >= 15
-                 and all(c not in secret_text for c in "<>{}"))
-    print("CLOUDINARY DIAGNOSTICS: API key has numeric key format:", key_ok)
-    print("CLOUDINARY DIAGNOSTICS: secret does not contain template placeholders:", secret_ok)
-    if not key_ok or not secret_ok:
-        raise RuntimeError("Cloudinary GitHub secret appears to contain example placeholders, not actual credentials")
-    if str(cloud.cloud_name).strip() != expected_cloud:
-        raise RuntimeError("Cloudinary GitHub secret refers to a different cloud name")
+    # Do not hard-code the cloud name based on screenshots: let the authenticated
+    # Upload API verify that all three credentials belong to the same account.
+    print("CLOUDINARY DIAGNOSTICS: complete connection URI parsed; checking Upload API.")
     # Deliberately use the same Video Upload API as the actual pipeline.
     run_id = os.getenv("GITHUB_RUN_ID") or "manual"
     result = uploader.upload(
