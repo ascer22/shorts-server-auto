@@ -50,12 +50,24 @@ def verify_buffer():
     return selected[0]["id"]
 
 
-def verify_cloudinary():
-    value = os.getenv("CLOUDINARY_URL", "")
-    if not value:
-        raise RuntimeError("Missing GitHub Secret CLOUDINARY_URL")
+def normalize_cloudinary_url_env():
+    """Accept either a bare URI or the CLOUDINARY_URL=... dashboard format.
+
+    Never print the value: it contains a secret.
+    """
+    value = os.getenv("CLOUDINARY_URL", "").strip()
+    if value.startswith("CLOUDINARY_URL="):
+        value = value.split("=", 1)[1].strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1].strip()
     if not value.startswith("cloudinary://"):
-        raise RuntimeError("CLOUDINARY_URL must start with cloudinary:// (without CLOUDINARY_URL= prefix)")
+        raise RuntimeError("CLOUDINARY_URL missing or invalid in GitHub Secrets")
+    os.environ["CLOUDINARY_URL"] = value
+    return value
+
+
+def verify_cloudinary():
+    normalize_cloudinary_url_env()
     import cloudinary
     conf = cloudinary.config()
     if not all((conf.cloud_name, conf.api_key, conf.api_secret)):
