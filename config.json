@@ -1,0 +1,11 @@
+{
+  "youtube_channel_id": "UCDDZOBAdDlPbUA4z42r_wvw",
+  "youtube_handle": "@i11ush",
+  "target_tiktok_handle": "kaspy_58",
+  "max_video_duration_seconds": 180,
+  "max_candidates_per_run": 5,
+  "publish_time": "18:00",
+  "publish_timezone": "Europe/Moscow",
+  "mirror_horizontal": true,
+  "description_suffix": "#истории #факты"
+}
