@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Retest after owner updated the Cloudinary GitHub Secret; draft-only integration.
+# Credential retest requested by owner after correcting CLOUDINARY_URL; draft only.
 """Manual/one-shot integration smoke test; NEVER schedule or publish to TikTok.
 
 Creates an original 6-second FFmpeg test MP4, uploads to Cloudinary,
