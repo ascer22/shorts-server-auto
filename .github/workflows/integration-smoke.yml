@@ -1,10 +1,6 @@
 name: Smoke test Cloudinary to Buffer draft
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/integration-smoke.yml"
   workflow_dispatch:
 
 permissions:
