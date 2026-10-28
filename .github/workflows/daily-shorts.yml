@@ -1,6 +1,13 @@
 name: YouTube Shorts to TikTok (daily)
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "config.json"
+      - "pipeline.py"
+      - "tests/test_pipeline.py"
+      - ".github/workflows/daily-shorts.yml"
   schedule:
     - cron: '17 8 * * *'  # 11:17 Moscow
   workflow_dispatch:
