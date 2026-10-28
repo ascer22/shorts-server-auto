@@ -91,6 +91,29 @@ class PipelineTest(unittest.TestCase):
         found = pipeline.collect_source_shorts(cfg, {'scheduled': {}})
         self.assertEqual([v['source_handle'] for v in found], ['@keymood_yt', '@world_edges'])
 
+    @patch('cloudinary_rest.requests.post')
+    @patch('cloudinary_rest.cloudinary_auth_details')
+    def test_cloudinary_rest_upload_uses_basic_auth(self, auth_mock, post_mock):
+        import tempfile
+        from pathlib import Path
+        from cloudinary_rest import upload_video_rest
+        auth_mock.return_value = ('example_cloud', '1234567890', 'example_secret')
+        reply = post_mock.return_value
+        reply.ok = True
+        reply.json.return_value = {
+            'resource_type': 'video',
+            'secure_url': 'https://res.cloudinary.com/example_cloud/video/upload/test.mp4',
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / 'test.mp4'
+            video.write_bytes(b'synthetic-test-video')
+            result = upload_video_rest(video, 'test', folder='tests', overwrite=False)
+        self.assertEqual(result, 'https://res.cloudinary.com/example_cloud/video/upload/test.mp4')
+        self.assertEqual(post_mock.call_args.kwargs['auth'], ('1234567890', 'example_secret'))
+        self.assertIn('/video/upload', post_mock.call_args.args[0])
+        self.assertEqual(post_mock.call_args.kwargs['data']['overwrite'], 'false')
+        self.assertEqual(post_mock.call_args.kwargs['data']['folder'], 'tests')
+
     def test_cloudinary_split_secret_normalization(self):
         from unittest.mock import patch
         import os
