@@ -1,0 +1,42 @@
+name: Smoke test Cloudinary to Buffer draft
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "smoke_test.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudinary-buffer-smoke-test
+  cancel-in-progress: false
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Test upload to Cloudinary and create Buffer draft (NEVER publish)
+        env:
+          CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          TARGET_TIKTOK_HANDLE: "kaspy_58"
+        run: |
+          python smoke_test.py
