@@ -101,23 +101,61 @@ def load_channel_via_ytdlp(channel_handle, limit=20):
     return items
 
 
-def load_channel_feed(channel_id, channel_handle=None):
-    """Use the public YouTube RSS feed, falling back if YouTube returns 404.
-
-    Some otherwise public channels do not provide a working RSS endpoint.
-    """
-    url = f'https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}'
-    try:
-        with urlopen(Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=30) as response:
-            items = parse_rss(response.read())
-        if items:
-            return items
-        LOG.warning('YouTube RSS feed returned no videos, trying channel Shorts listing.')
-    except Exception as exc:
-        LOG.warning('YouTube RSS failed (%s). Trying channel Shorts listing.', exc)
+def load_channel_feed(channel_id=None, channel_handle=None):
+    """Read a channel using RSS if its ID is known; otherwise use public Shorts listing."""
+    if channel_id:
+        url = f'https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}'
+        try:
+            with urlopen(Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=30) as response:
+                items = parse_rss(response.read())
+            if items:
+                return items
+            LOG.warning('YouTube RSS returned no videos for %s.', channel_handle)
+        except Exception as exc:
+            LOG.warning('YouTube RSS failed for %s (%s). Using Shorts listing.', channel_handle, exc)
     if not channel_handle:
-        raise RuntimeError('YouTube RSS unavailable and no channel handle configured')
+        raise RuntimeError('No channel handle available for Shorts listing')
     return load_channel_via_ytdlp(channel_handle)
+
+
+def collect_source_shorts(cfg, state):
+    """Collect from all sources; prioritize a different source after each scheduled post.
+
+    A failure of an individual source does not block the other configured sources.
+    """
+    sources = cfg.get('youtube_sources')
+    if not sources:
+        sources = [{'handle': cfg['youtube_handle'],
+                    'channel_id': cfg.get('youtube_channel_id')}]
+    groups = []
+    known_ids = set()
+    for source in sources:
+        handle = source['handle']
+        try:
+            videos = load_channel_feed(source.get('channel_id'), handle)
+        except Exception as exc:
+            LOG.warning('Source %s unavailable: %s', handle, exc)
+            continue
+        entries = []
+        for video in videos:
+            if video['id'] in state['scheduled'] or video['id'] in known_ids:
+                continue
+            known_ids.add(video['id'])
+            entries.append({**video, 'source_handle': handle})
+        LOG.info('YouTube %s: %d recent, %d unscheduled', handle, len(videos), len(entries))
+        groups.append((handle, entries))
+    if not groups:
+        raise RuntimeError('No YouTube channel could be checked. See warnings above.')
+    previous = state.get('last_scheduled_source')
+    names = [handle for handle, _ in groups]
+    offset = (names.index(previous) + 1) % len(groups) if previous in names else 0
+    ordered = groups[offset:] + groups[:offset]
+    combined = []
+    for index in range(max(len(videos) for _, videos in ordered)):
+        for handle, videos in ordered:
+            if index < len(videos):
+                combined.append(videos[index])
+    return combined
 
 
 def video_info(url):
@@ -263,12 +301,11 @@ def create_buffer_post(api_key, channel_id, title, video_url, due_at, suffix):
 def run(mode):
     cfg = get_config()
     state = read_state()
-    recent = load_channel_feed(cfg['youtube_channel_id'], cfg.get('youtube_handle'))
-    new_videos = [v for v in recent if v['id'] not in state['scheduled']]
-    LOG.info('YouTube %s: %d recent, %d unscheduled', cfg['youtube_handle'], len(recent), len(new_videos))
+    new_videos = collect_source_shorts(cfg, state)
+    LOG.info('Total unscheduled Shorts across sources: %d', len(new_videos))
     if mode == 'check':
-        for item in new_videos[:15]:
-            print(f"{item['published'][:10]} | {item['title']} | {item['shorts_url']}")
+        for item in new_videos[:30]:
+            print(f"{item['source_handle']} | {item['published'][:10]} | {item['title']} | {item['shorts_url']}")
         print('CHECK ONLY: Nothing downloaded, uploaded, or scheduled.')
         return 0
 
@@ -297,9 +334,11 @@ def run(mode):
             post_id = create_buffer_post(api_key, channel, item['title'], remote_url, date, cfg['description_suffix'])
             state['scheduled'][item['id']] = {
                 'title': item['title'], 'youtube': item['shorts_url'],
+                'source_handle': item['source_handle'],
                 'cloudinary_url': remote_url, 'buffer_post_id': post_id,
                 'scheduled_at_utc': date,
             }
+            state['last_scheduled_source'] = item['source_handle']
             save_state(state)
             LOG.info('Scheduled %s for %s via Buffer post %s', item['shorts_url'], date, post_id)
             return 0
