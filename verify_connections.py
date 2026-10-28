@@ -51,17 +51,45 @@ def verify_buffer():
 
 
 def normalize_cloudinary_url_env():
-    """Accept either a bare URI or the CLOUDINARY_URL=... dashboard format.
+    """Normalize a Cloudinary environment URI without printing its credentials.
 
-    Never print the value: it contains a secret.
+    The GitHub Secret needs one complete URI, not merely an API key or
+    API secret. Accept common dashboard copy/paste wrappers.
     """
-    value = os.getenv("CLOUDINARY_URL", "").strip()
-    if value.startswith("CLOUDINARY_URL="):
-        value = value.split("=", 1)[1].strip()
+    import re
+    raw = os.getenv("CLOUDINARY_URL", "")
+    value = raw.strip().strip("\x60")
+    if not value:
+        print("CLOUDINARY FORMAT: GitHub secret is absent or empty.")
+        raise RuntimeError("CLOUDINARY_URL secret is empty")
+    # Dashboard may copy a shell assignment, optionally prefixed with export.
+    value = re.sub(r"^(?:export\\s+)?CLOUDINARY_URL\\s*=\\s*", "", value, count=1, flags=re.I)
+    value = value.strip().strip("\x60").strip()
     if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
         value = value[1:-1].strip()
-    if not value.startswith("cloudinary://"):
-        raise RuntimeError("CLOUDINARY_URL missing or invalid in GitHub Secrets")
+    value = value.strip()
+    if not value.lower().startswith("cloudinary://"):
+        if value.isdigit():
+            reason = "API key only (numeric); full connection URI required"
+        elif value.lower().startswith(("http://", "https://")):
+            reason = "website URL rather than cloudinary:// connection URI"
+        elif ("api_key" in value.lower() or "api_secret" in value.lower()
+              or "\\n" in value):
+            reason = "Cloudinary fields/template rather than single connection URI"
+        else:
+            reason = "unrecognized connection string format"
+        print(f"CLOUDINARY FORMAT: {reason}. Secret value not displayed.")
+        raise RuntimeError("CLOUDINARY_URL format is not a cloudinary:// URI")
+    # Validate basic structure without ever echoing the secret or cloud name.
+    from urllib.parse import urlsplit
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme != "cloudinary" or not parsed.username or not parsed.password or not parsed.hostname:
+            raise ValueError("missing URI components")
+    except (ValueError, TypeError):
+        print("CLOUDINARY FORMAT: cloudinary:// URI is missing one or more components.")
+        raise RuntimeError("CLOUDINARY_URL URI components are incomplete") from None
+    print("CLOUDINARY FORMAT: full cloudinary:// URI recognized. Value remains masked.")
     os.environ["CLOUDINARY_URL"] = value
     return value
 
