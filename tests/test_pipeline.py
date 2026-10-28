@@ -24,6 +24,23 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual('2026-10-28T15:00:00.000Z', pipeline.next_publication(datetime(2026,10,28,8,0,tzinfo=timezone.utc)))
         self.assertEqual('2026-10-29T15:00:00.000Z', pipeline.next_publication(datetime(2026,10,28,14,45,tzinfo=timezone.utc)))
 
+    def test_flat_short_listing(self):
+        entries = [{'id': 'hp3q_LmqOnc', 'title': 'Test short', 'upload_date': '20261027'},
+                   {'id': 'bad!', 'title': 'Invalid'}]
+        clips = pipeline.parse_channel_playlist({'entries': entries})
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(clips[0]['published'], '2026-10-27')
+
+    @patch('pipeline.load_channel_via_ytdlp')
+    @patch('pipeline.urlopen')
+    def test_rss_404_fallback(self, open_mock, fallback_mock):
+        from urllib.error import HTTPError
+        open_mock.side_effect = HTTPError('https://youtube.com/rss', 404, 'Not found', {}, None)
+        fallback_mock.return_value = [{'id': 'hp3q_LmqOnc'}]
+        clips = pipeline.load_channel_feed('UC123', '@i11ush')
+        self.assertEqual(clips[0]['id'], 'hp3q_LmqOnc')
+        fallback_mock.assert_called_once_with('@i11ush')
+
     @patch('pipeline.gql')
     def test_find_buffer_tiktok(self, mock):
         mock.side_effect = [
