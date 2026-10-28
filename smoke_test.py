@@ -41,9 +41,11 @@ def make_test_video(path: Path):
 
 
 def upload_video(path: Path):
+    # Set CLOUDINARY_URL before importing its SDK: it reads environment
+    # configuration during initialization.
+    normalize_cloudinary_url_env()
     from cloudinary import config, uploader
 
-    normalize_cloudinary_url_env()
     cloud = config()
     if not (cloud.cloud_name and cloud.api_key and cloud.api_secret):
         raise RuntimeError("Cloudinary credentials are incomplete")
