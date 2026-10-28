@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Read-only verification of Cloudinary and Buffer credentials from GitHub Secrets.
+
+Does not download videos, upload media, create Buffer posts, or publish anything.
+Does not print API keys, API secrets, or connection strings.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+import requests
+
+BUFFER_API = "https://api.buffer.com"
+
+
+def query_buffer(token: str, query: str, *, http=requests.post):
+    response = http(
+        BUFFER_API,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"query": query},
+        timeout=25,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if data.get("errors"):
+        raise RuntimeError("Buffer GraphQL query was rejected")
+    return data.get("data") or {}
+
+
+def verify_buffer():
+    token = os.getenv("BUFFER_API_KEY")
+    if not token:
+        raise RuntimeError("Missing GitHub Secret BUFFER_API_KEY")
+    root = query_buffer(token, "query { account { organizations { id name } } }")
+    organizations = (root.get("account") or {}).get("organizations") or []
+    channels = []
+    for org in organizations:
+        org_id = json.dumps(org["id"])
+        result = query_buffer(token, f"query {{ channels(input: {{ organizationId: {org_id} }}) {{ id name service }} }}")
+        channels.extend(result.get("channels") or [])
+    tiktoks = [c for c in channels if str(c.get("service", "")).lower() == "tiktok"]
+    target = os.getenv("TARGET_TIKTOK_HANDLE", "kaspy_58").lower().lstrip("@")
+    selected = [c for c in tiktoks if str(c.get("name", "")).lower().lstrip("@") == target]
+    print(f"BUFFER: authentication OK; organizations={len(organizations)}; TikTok channels={len(tiktoks)}.")
+    if len(selected) != 1:
+        raise RuntimeError(f"Expected one connected TikTok channel @{target}; found {len(selected)}")
+    print(f"BUFFER: target @{target} found. No posts were created.")
+    return selected[0]["id"]
+
+
+def verify_cloudinary():
+    value = os.getenv("CLOUDINARY_URL", "")
+    if not value:
+        raise RuntimeError("Missing GitHub Secret CLOUDINARY_URL")
+    if not value.startswith("cloudinary://"):
+        raise RuntimeError("CLOUDINARY_URL must start with cloudinary:// (without CLOUDINARY_URL= prefix)")
+    import cloudinary
+    import cloudinary.api
+    conf = cloudinary.config()
+    if not all((conf.cloud_name, conf.api_key, conf.api_secret)):
+        raise RuntimeError("Cloudinary connection string is incomplete")
+    result = cloudinary.api.ping()
+    if result.get("status") != "ok":
+        raise RuntimeError("Cloudinary ping returned an unexpected status")
+    print("CLOUDINARY: authenticated API ping OK. No media was uploaded.")
+
+
+def main():
+    failed = False
+    for name, fn in (("BUFFER", verify_buffer), ("CLOUDINARY", verify_cloudinary)):
+        try:
+            fn()
+        except Exception as exc:
+            # Avoid printing exception details: some SDKs include URLs or credentials.
+            print(f"{name}: FAILED ({type(exc).__name__}).")
+            if str(exc).startswith(("Missing GitHub", "Expected one connected TikTok", "CLOUDINARY_URL must", "Cloudinary connection string")):
+                print(f"{name}: {exc}")
+            failed = True
+    if failed:
+        print("CHECK FAILED. Publishing remains disabled.")
+        return 1
+    print("CHECK COMPLETE: both services connected. Nothing published.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
