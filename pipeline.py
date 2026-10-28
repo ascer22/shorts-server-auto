@@ -312,8 +312,11 @@ def run(mode):
     if os.environ.get('ENABLE_AUTOMATION') != 'true':
         raise RuntimeError('ENABLE_AUTOMATION must be set to true in GitHub Actions Variables')
     api_key = os.environ.get('BUFFER_API_KEY')
-    if not api_key or not os.environ.get('CLOUDINARY_URL'):
-        raise RuntimeError('Configure GitHub Secrets BUFFER_API_KEY and CLOUDINARY_URL')
+    cloudinary_url_present = bool(os.environ.get('CLOUDINARY_URL'))
+    cloudinary_split_present = all(os.environ.get(key) for key in (
+        'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'))
+    if not api_key or not (cloudinary_url_present or cloudinary_split_present):
+        raise RuntimeError('Configure Buffer API Key and either CLOUDINARY_URL or three individual Cloudinary secrets')
     channel = buffer_tiktok_channel(
         api_key, os.environ.get('TARGET_TIKTOK_HANDLE') or cfg['target_tiktok_handle'],
         explicit_id=os.environ.get('BUFFER_CHANNEL_ID') or None,
