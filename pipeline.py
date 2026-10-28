@@ -1,0 +1,277 @@
+#!/usr/bin/env python3
+"""YouTube RSS -> optional accessible download -> horizontal flip -> Cloudinary -> Buffer.
+
+By default this only checks YouTube RSS. No DRM or access-control bypass.
+Use publishing only where you have the necessary rights/permission.
+"""
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timedelta, timezone
+import json
+import logging
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+from urllib.request import Request, urlopen
+import xml.etree.ElementTree as ET
+from zoneinfo import ZoneInfo
+
+import requests
+
+ROOT = Path(__file__).resolve().parent
+STATE_FILE = ROOT / 'data' / 'state.json'
+CONFIG_FILE = ROOT / 'config.json'
+ATOM = '{http://www.w3.org/2005/Atom}'
+YT = '{http://www.youtube.com/xml/schemas/2015}'
+BUFFER_ENDPOINT = 'https://api.buffer.com'
+LOG = logging.getLogger('shorts')
+
+
+def get_config():
+    return json.loads(CONFIG_FILE.read_text(encoding='utf-8'))
+
+
+def read_state():
+    if STATE_FILE.exists():
+        state = json.loads(STATE_FILE.read_text(encoding='utf-8'))
+    else:
+        state = {'scheduled': {}}
+    state.setdefault('scheduled', {})
+    return state
+
+
+def save_state(state):
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temp = STATE_FILE.with_suffix('.tmp')
+    temp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    os.replace(temp, STATE_FILE)
+
+
+def parse_rss(xml_bytes):
+    root = ET.fromstring(xml_bytes)
+    result = []
+    for entry in root.findall(f'{ATOM}entry'):
+        identifier = entry.findtext(f'{YT}videoId')
+        if not identifier:
+            continue
+        result.append({
+            'id': identifier,
+            'title': entry.findtext(f'{ATOM}title', default='Short'),
+            'published': entry.findtext(f'{ATOM}published', default=''),
+            'youtube_url': f'https://www.youtube.com/watch?v={identifier}',
+            'shorts_url': f'https://www.youtube.com/shorts/{identifier}',
+        })
+    return sorted(result, key=lambda v: v['published'], reverse=True)
+
+
+def load_channel_feed(channel_id):
+    url = f'https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}'
+    with urlopen(Request(url, headers={'User-Agent': 'Mozilla/5.0'}), timeout=30) as response:
+        return parse_rss(response.read())
+
+
+def video_info(url):
+    p = subprocess.run(
+        ['yt-dlp', '--no-playlist', '--dump-single-json', '--skip-download', url],
+        text=True, capture_output=True, check=True, timeout=120,
+    )
+    return json.loads(p.stdout)
+
+
+def is_eligible(info, max_duration):
+    duration = info.get('duration')
+    if not duration or not (3 <= duration <= max_duration):
+        return False
+    return info.get('live_status') not in ('is_live', 'is_upcoming')
+
+
+def download_mirror(url, destination, mirror=True):
+    destination.parent.mkdir(exist_ok=True, parents=True)
+    with tempfile.TemporaryDirectory(prefix='shorts_') as tmp:
+        work = Path(tmp)
+        subprocess.run([
+            'yt-dlp', '--no-playlist', '--no-progress',
+            '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best',
+            '--merge-output-format', 'mp4',
+            '-o', str(work / 'source.%(ext)s'), url,
+        ], check=True, timeout=600)
+        matches = [p for p in work.glob('source.*') if p.suffix.lower() in ('.mp4', '.webm', '.mkv')]
+        if not matches:
+            raise RuntimeError('YouTube did not provide an accessible video file')
+        source = matches[0]
+        cmd = [
+            'ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+            '-i', str(source), '-map', '0:v:0', '-map', '0:a:0?',
+            '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24',
+            '-pix_fmt', 'yuv420p',
+            '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart',
+        ]
+        if mirror:
+            cmd.extend(['-vf', 'hflip'])
+        cmd.append(str(destination))
+        subprocess.run(cmd, check=True, timeout=600)
+        if not destination.exists() or destination.stat().st_size < 1024:
+            raise RuntimeError('Output MP4 was empty')
+    return destination
+
+
+def upload_cloudinary(file_path: Path, public_id: str):
+    import cloudinary
+    import cloudinary.uploader
+    if not os.environ.get('CLOUDINARY_URL'):
+        raise RuntimeError('GitHub Secret CLOUDINARY_URL is missing')
+    cloudinary.config()
+    args = {
+        'resource_type': 'video',
+        'public_id': public_id,
+        'folder': 'shorts-automation',
+        'overwrite': True,
+    }
+    size = file_path.stat().st_size
+    if size > 100 * 1024 * 1024:
+        response = cloudinary.uploader.upload_large(str(file_path), chunk_size=6 * 1024 * 1024, **args)
+    else:
+        response = cloudinary.uploader.upload(str(file_path), **args)
+    link = response.get('secure_url')
+    if not link or not link.startswith('https://'):
+        raise RuntimeError('Cloudinary did not return a public HTTPS video URL')
+    return link
+
+
+def gql(api_key, query):
+    response = requests.post(
+        BUFFER_ENDPOINT,
+        json={'query': query},
+        headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+        timeout=45,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if data.get('errors'):
+        raise RuntimeError(f'Buffer GraphQL: {data["errors"]}')
+    return data.get('data') or {}
+
+
+def buffer_tiktok_channel(api_key, target_handle, explicit_id=None):
+    organizations = gql(api_key, 'query { account { organizations { id name } } }')\
+        .get('account', {}).get('organizations', [])
+    candidates = []
+    for org in organizations:
+        query = 'query { channels(input: { organizationId: %s }) { id name displayName service isQueuePaused } }' % json.dumps(org['id'])
+        candidates.extend(gql(api_key, query).get('channels') or [])
+    tiktoks = [c for c in candidates if str(c.get('service', '')).lower() == 'tiktok']
+    if explicit_id:
+        chosen = [c for c in tiktoks if c['id'] == explicit_id]
+    else:
+        normalized = target_handle.lower().lstrip('@').strip()
+        chosen = [c for c in tiktoks if normalized in [
+            str(c.get('name') or '').lower().lstrip('@'),
+            str(c.get('displayName') or '').lower().lstrip('@'),
+        ]]
+    if len(chosen) != 1:
+        names = ', '.join(f"{c.get('name')} ({c.get('id')})" for c in tiktoks) or 'none'
+        raise RuntimeError(f'Cannot unambiguously select TikTok channel. Available: {names}. Set BUFFER_CHANNEL_ID variable.')
+    channel = chosen[0]
+    if channel.get('isQueuePaused'):
+        raise RuntimeError('TikTok queue is paused in Buffer; unpause before scheduling.')
+    return channel['id']
+
+
+def next_publication(now_utc: datetime, target_tz='Europe/Moscow', clock='18:00'):
+    local = now_utc.astimezone(ZoneInfo(target_tz))
+    hour, minute = map(int, clock.split(':'))
+    candidate = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if (candidate - local).total_seconds() < 30 * 60:
+        candidate += timedelta(days=1)
+    return candidate.astimezone(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+
+
+def create_buffer_post(api_key, channel_id, title, video_url, due_at, suffix):
+    text = f'{title}\n{suffix}'.strip()[:2100]
+    query = '''mutation CreatePost {
+      createPost(input: {
+        text: %s
+        channelId: %s
+        schedulingType: automatic
+        mode: customScheduled
+        dueAt: %s
+        assets: [{ video: { url: %s } }]
+      }) {
+        ... on PostActionSuccess { post { id text } }
+        ... on MutationError { message }
+      }
+    }''' % tuple(json.dumps(x, ensure_ascii=False) for x in (text, channel_id, due_at, video_url))
+    result = gql(api_key, query).get('createPost') or {}
+    if result.get('message'):
+        raise RuntimeError(f"Buffer refused post: {result['message']}")
+    post = result.get('post') or {}
+    if not post.get('id'):
+        raise RuntimeError(f'Buffer did not confirm a scheduled post: {result}')
+    return post['id']
+
+
+def run(mode):
+    cfg = get_config()
+    state = read_state()
+    recent = load_channel_feed(cfg['youtube_channel_id'])
+    new_videos = [v for v in recent if v['id'] not in state['scheduled']]
+    LOG.info('YouTube %s: %d recent, %d unscheduled', cfg['youtube_handle'], len(recent), len(new_videos))
+    if mode == 'check':
+        for item in new_videos[:15]:
+            print(f"{item['published'][:10]} | {item['title']} | {item['shorts_url']}")
+        print('CHECK ONLY: Nothing downloaded, uploaded, or scheduled.')
+        return 0
+
+    if os.environ.get('ENABLE_AUTOMATION') != 'true':
+        raise RuntimeError('ENABLE_AUTOMATION must be set to true in GitHub Actions Variables')
+    api_key = os.environ.get('BUFFER_API_KEY')
+    if not api_key or not os.environ.get('CLOUDINARY_URL'):
+        raise RuntimeError('Configure GitHub Secrets BUFFER_API_KEY and CLOUDINARY_URL')
+    channel = buffer_tiktok_channel(
+        api_key, os.environ.get('TARGET_TIKTOK_HANDLE') or cfg['target_tiktok_handle'],
+        explicit_id=os.environ.get('BUFFER_CHANNEL_ID') or None,
+    )
+    max_seconds = int(cfg.get('max_video_duration_seconds', 180))
+    count = int(cfg.get('max_candidates_per_run', 5))
+    for item in new_videos[:count]:
+        try:
+            info = video_info(item['youtube_url'])
+            if not is_eligible(info, max_seconds):
+                LOG.info('Skip longer or live video %s', item['id'])
+                continue
+            with tempfile.TemporaryDirectory(prefix='work_') as temp:
+                path = Path(temp) / f"{item['id']}.mp4"
+                download_mirror(item['youtube_url'], path, cfg.get('mirror_horizontal', True))
+                remote_url = upload_cloudinary(path, item['id'])
+            date = next_publication(datetime.now(timezone.utc), cfg['publish_timezone'], cfg['publish_time'])
+            post_id = create_buffer_post(api_key, channel, item['title'], remote_url, date, cfg['description_suffix'])
+            state['scheduled'][item['id']] = {
+                'title': item['title'], 'youtube': item['shorts_url'],
+                'cloudinary_url': remote_url, 'buffer_post_id': post_id,
+                'scheduled_at_utc': date,
+            }
+            save_state(state)
+            LOG.info('Scheduled %s for %s via Buffer post %s', item['shorts_url'], date, post_id)
+            return 0
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError, ValueError, OSError, requests.RequestException) as ex:
+            LOG.warning('Could not process %s: %s', item['shorts_url'], ex)
+    LOG.warning('No short was successfully scheduled. Feed may have long/private/unavailable videos.')
+    return 2
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Daily Shorts -> Cloudinary -> Buffer scheduler')
+    parser.add_argument('--mode', choices=['check', 'publish'], default='check')
+    args = parser.parse_args()
+    logging.basicConfig(format='%(levelname)s %(message)s', level=logging.INFO)
+    try:
+        return run(args.mode)
+    except Exception as ex:
+        LOG.exception('Pipeline failed: %s', ex)
+        return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
