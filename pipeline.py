@@ -204,26 +204,16 @@ def download_mirror(url, destination, mirror=True):
 
 
 def upload_cloudinary(file_path: Path, public_id: str):
-    import cloudinary
-    import cloudinary.uploader
-    from verify_connections import normalize_cloudinary_url_env
-    normalize_cloudinary_url_env()
-    cloudinary.config()
-    args = {
-        'resource_type': 'video',
-        'public_id': public_id,
-        'folder': 'shorts-automation',
-        'overwrite': True,
-    }
-    size = file_path.stat().st_size
-    if size > 100 * 1024 * 1024:
-        response = cloudinary.uploader.upload_large(str(file_path), chunk_size=6 * 1024 * 1024, **args)
-    else:
-        response = cloudinary.uploader.upload(str(file_path), **args)
-    link = response.get('secure_url')
-    if not link or not link.startswith('https://'):
-        raise RuntimeError('Cloudinary did not return a public HTTPS video URL')
-    return link
+    # Direct REST Basic Auth is verified by the credentials-only preflight.
+    # The earlier Python SDK signature flow returned AuthorizationRequired.
+    from cloudinary_rest import upload_video_rest
+
+    return upload_video_rest(
+        file_path,
+        public_id=public_id,
+        folder="shorts-automation",
+        overwrite=True,
+    )
 
 
 def gql(api_key, query):
