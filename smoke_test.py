@@ -18,7 +18,7 @@ import time
 
 import requests
 
-from verify_connections import verify_buffer
+from verify_connections import verify_buffer, normalize_cloudinary_url_env
 
 BUFFER_ENDPOINT = "https://api.buffer.com"
 
@@ -43,8 +43,7 @@ def make_test_video(path: Path):
 def upload_video(path: Path):
     from cloudinary import config, uploader
 
-    if not os.environ.get("CLOUDINARY_URL", "").startswith("cloudinary://"):
-        raise RuntimeError("CLOUDINARY_URL missing or invalid in GitHub Secrets")
+    normalize_cloudinary_url_env()
     cloud = config()
     if not (cloud.cloud_name and cloud.api_key and cloud.api_secret):
         raise RuntimeError("Cloudinary credentials are incomplete")
