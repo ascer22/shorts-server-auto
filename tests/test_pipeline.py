@@ -91,6 +91,18 @@ class PipelineTest(unittest.TestCase):
         found = pipeline.collect_source_shorts(cfg, {'scheduled': {}})
         self.assertEqual([v['source_handle'] for v in found], ['@keymood_yt', '@world_edges'])
 
+    def test_cloudinary_split_secret_normalization(self):
+        from unittest.mock import patch
+        import os
+        from verify_connections import normalize_cloudinary_url_env
+        values = {"CLOUDINARY_CLOUD_NAME": "example_cloud",
+                  "CLOUDINARY_API_KEY": "123456789012345",
+                  "CLOUDINARY_API_SECRET": "test@secret:with#symbols"}
+        with patch.dict(os.environ, values, clear=True):
+            result = normalize_cloudinary_url_env()
+            self.assertEqual(result, "cloudinary://123456789012345:test%40secret%3Awith%23symbols@example_cloud")
+            self.assertEqual(os.environ["CLOUDINARY_URL"], result)
+
     @patch('pipeline.gql')
     def test_find_buffer_tiktok(self, mock):
         mock.side_effect = [
