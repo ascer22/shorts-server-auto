@@ -1,10 +1,6 @@
 name: Smoke test Cloudinary to Buffer draft
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "smoke_test.py"
   workflow_dispatch:
 
 permissions:
@@ -36,6 +32,9 @@ jobs:
       - name: Test upload to Cloudinary and create Buffer draft (NEVER publish)
         env:
           CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           TARGET_TIKTOK_HANDLE: "kaspy_58"
         run: |
