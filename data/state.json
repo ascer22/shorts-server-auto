@@ -1,3 +1,12 @@
 {
-  "scheduled": {}
+  "scheduled": {
+    "original-venus-nasa-20261030": {
+      "title": "На Венере оборот вокруг оси длиннее года",
+      "source_handle": "NASA SVS",
+      "cloudinary_url": "https://res.cloudinary.com/ipywikrb/video/upload/v1793373926/shorts-automation/original-venus-nasa-20261030.mp4",
+      "buffer_post_id": "6ae4b6e879ddf9a28a015574",
+      "mode": "shareNow",
+      "submitted_at_utc": "2026-10-30T15:25:38+00:00"
+    }
+  }
 }
