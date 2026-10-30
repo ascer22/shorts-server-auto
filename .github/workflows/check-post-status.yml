@@ -1,10 +1,6 @@
 name: Check one TikTok delivery status (read only)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/check-post-status.yml"
   workflow_dispatch:
 
 permissions:
