@@ -125,8 +125,11 @@ def collect_source_shorts(cfg, state):
     """
     sources = cfg.get('youtube_sources')
     if not sources:
-        sources = [{'handle': cfg['youtube_handle'],
-                    'channel_id': cfg.get('youtube_channel_id')}]
+        raise RuntimeError('No user-approved YouTube sources in config.json; refusing to substitute any other channel')
+    approved = {'@i11ush', '@keymood_yt', '@world_edges'}
+    actual = {s['handle'] for s in sources}
+    if actual != approved or len(sources) != 3:
+        raise RuntimeError('Refusing any source outside the three explicitly approved YouTube channels')
     groups = []
     known_ids = set()
     for source in sources:
