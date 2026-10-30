@@ -6,3 +6,6 @@ __pycache__/
 *.webm
 *.mkv
 .work/
+
+# Locally downloaded source media, logs, and cache (never commit or share)
+local_downloads/
