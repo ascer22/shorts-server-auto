@@ -1,10 +1,6 @@
 name: Publish ONE original Venus science video (single run)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/one-shot-tiktok.yml"
   workflow_dispatch:
 
 permissions:
