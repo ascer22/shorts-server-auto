@@ -1,0 +1,64 @@
+name: Publish ONE TikTok video now (single run)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-shot-tiktok.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-shot-tiktok-publication
+  cancel-in-progress: false
+
+jobs:
+  publish-one:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install yt-dlp, ffmpeg and Cloudinary dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Validate Python source
+        run: python -m py_compile publish_one_now.py cloudinary_rest.py pipeline.py verify_connections.py
+
+      - name: Publish exactly one selected Short (immediate mode)
+        env:
+          ONE_SHOT_APPROVAL: "POST_ONE_VIDEO_OCT30_2026"
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+          TARGET_TIKTOK_HANDLE: "kaspy_58"
+        run: python publish_one_now.py
+
+      - name: Record submission for duplicate prevention
+        if: success()
+        run: |
+          if [ -n "$(git status --porcelain -- data/state.json data/one-shot-result.json)" ]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add data/state.json data/one-shot-result.json
+            git commit -m 'Record one-time TikTok submission'
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+          else
+            echo 'No new submission to record.'
+          fi
