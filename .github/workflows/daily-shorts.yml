@@ -7,6 +7,9 @@ on:
       - "config.json"
       - "pipeline.py"
       - "tests/test_pipeline.py"
+      - "tests/test_windows_short_collector.py"
+      - "windows_short_collector.py"
+      - "setup_windows_collector.ps1"
       - "verify_connections.py"
       - ".github/workflows/daily-shorts.yml"
   schedule:
