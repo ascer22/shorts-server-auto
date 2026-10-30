@@ -1,4 +1,4 @@
-name: Publish ONE TikTok video now (single run)
+name: Publish ONE original Venus science video (single run)
 
 on:
   push:
@@ -34,9 +34,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
           python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip install --disable-pip-version-check pillow edge-tts
 
       - name: Validate Python source
-        run: python -m py_compile publish_one_now.py cloudinary_rest.py pipeline.py verify_connections.py
+        run: python -m py_compile publish_venus_once.py cloudinary_rest.py pipeline.py verify_connections.py
 
       - name: Publish exactly one selected Short (immediate mode)
         env:
@@ -47,7 +48,7 @@ jobs:
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           TARGET_TIKTOK_HANDLE: "kaspy_58"
-        run: python publish_one_now.py
+        run: python publish_venus_once.py
 
       - name: Record submission for duplicate prevention
         if: success()
