@@ -1,0 +1,55 @@
+name: Check one TikTok delivery status (read only)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/check-post-status.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-delivery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect Buffer post delivery (never create a post)
+        env:
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import time
+          from urllib.request import Request, urlopen
+          post_id = "6ae4b6e879ddf9a28a015574"
+          token = os.environ.get("BUFFER_API_KEY", "")
+          if not token:
+              raise RuntimeError("BUFFER_API_KEY absent")
+          query = 'query { post(input: {id: ' + json.dumps(post_id) + '}) { id status sentAt externalLink sharedNow } }'
+          for attempt in range(6):
+              request = Request(
+                  "https://api.buffer.com",
+                  data=json.dumps({"query":query}).encode("utf-8"),
+                  headers={"Content-Type":"application/json","Authorization":"Bearer "+token},
+                  method="POST",
+              )
+              with urlopen(request, timeout=25) as response:
+                  data = json.load(response)
+              if data.get("errors"):
+                  print("BUFFER STATUS QUERY ERROR: "+str([x.get("message","unknown") for x in data["errors"]])[:350])
+                  raise SystemExit(2)
+              post = (data.get("data") or {}).get("post") or {}
+              state = post.get("status")
+              print("BUFFER DELIVERY STATUS:",state)
+              print("BUFFER SENT AT:",post.get("sentAt"))
+              print("TIKTOK LINK:",post.get("externalLink") or "(not returned yet)")
+              if state in ("sent","error","failed","draft"):
+                  break
+              if attempt < 5:
+                  time.sleep(12)
+          print("Only read-only Buffer GraphQL queries were performed. No new posts.")
+          PY
