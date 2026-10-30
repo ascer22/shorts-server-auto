@@ -53,6 +53,51 @@
 - `data/state.json` хранит сведения о созданных запланированных постах. Для проверки реальной публикации используйте Buffer Sent / TikTok.
 - GitHub Secrets никогда не нужно отправлять в чат или помещать в код.
 
+
+## Автоматическая загрузка MP4 на Windows (когда GitHub облако заблокировано YouTube)
+
+Для YouTube Shorts с аккаунтов **@i11ush**, **@keymood_yt**, **@world_edges** добавлен отдельный загрузчик `windows_short_collector.py`. Он не использует другие источники, не создаёт публикаций и не передаёт cookie-файлы в GitHub.
+
+GitHub-hosted виртуальные машины могут получить от YouTube `Sign in to confirm you're not a bot`. При запуске с домашнего ПК иногда удаётся получить доступ к видео, которые реально доступны в браузере. **Гарантии нет:** YouTube может потребовать авторизацию или отказать в скачивании; скачивайте и публикуйте только контент, для которого у вас есть права и разрешения.
+
+### Установка (один раз)
+
+1. На Windows откройте <https://github.com/ascer22/shorts-server-auto> → **Code → Download ZIP**. Распакуйте в постоянную папку, например `C:\\ShortsAuto`.
+2. Установите Python 3.11+ с официального сайта <https://www.python.org/downloads/windows/> (при установке отметьте **Add Python to PATH**).
+3. Установите FFmpeg, если его ещё нет. В PowerShell: `winget install --id Gyan.FFmpeg -e`. Закройте и снова откройте PowerShell после установки.
+4. Откройте PowerShell в папке с `windows_short_collector.py`, выполните:
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\setup_windows_collector.ps1
+   ```
+   Скрипт устанавливает `yt-dlp` и добавляет ежедневное задание **Shorts MP4 Collector (Approved Channels Only)** на **11:30 по местному времени Windows**. Задание работает, когда ПК включён, а владелец вошёл в Windows. Это **не облачный 24/7-сервис**.
+
+### Проверить первый MP4
+
+В PowerShell из папки проекта:
+
+```powershell
+py -3 windows_short_collector.py --probe
+py -3 windows_short_collector.py
+```
+
+Если YouTube запрашивает вход, войдите на YouTube в **своём** Edge и проверьте вариант:
+
+```powershell
+py -3 windows_short_collector.py --browser edge
+```
+
+Режим `--browser edge` использует сессию браузера **локально на ПК**, не экспортируя cookies в GitHub. Запускайте его только для видео, к которым у вас есть законный доступ и право на повторную публикацию. Этот режим может не работать или потребовать закрыть Edge, если хранилище cookies заблокировано. Для постоянного запуска с Edge пересоздайте задание:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup_windows_collector.ps1 -Browser edge
+```
+
+Готовые файлы сохраняются по пути `local_downloads\@i11ush\VIDEO_ID.mp4` (аналогично для остальных двух каналов). Журнал работы — `local_downloads\collector.log`, история скачанных ID — `local_downloads\downloaded.json`. Папка полностью исключена из Git.
+
+**Важно:** этот этап только автоматически получает MP4 и, если включено `mirror_horizontal`, горизонтально отражает ролик. Для полностью автоматической цепочки до Cloudinary/Buffer потребуется отдельно связать локальную папку с загрузкой в облако. Пока ничего в TikTok не публикуется.
+
+---
+
 ## Локально
 ```bash
 python -m pip install -r requirements.txt
